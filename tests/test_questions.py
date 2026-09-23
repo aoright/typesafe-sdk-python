@@ -174,6 +174,14 @@ def test_empty_score_criteria_is_rejected(raw: bool) -> None:
         normalize_questions({"rating": question})
 
 
+@pytest.mark.parametrize("raw", [False, True])
+def test_empty_choice_criteria_is_rejected(raw: bool) -> None:
+    model = cast(ChoiceModel, {"type": "choice", "instructions": "Tone?", "criteria": {}})
+    question = model if raw else Choice(instructions=model["instructions"], criteria=model["criteria"])
+    with pytest.raises(TypeSafeError, match='"tone" has no criteria'):
+        normalize_questions({"tone": question})
+
+
 async def test_covariant_question_mappings(clients: ClientFactory) -> None:
     nouls = {"q": Noul(instructions="Spam?")}
     choices = {"q": Choice(instructions="Tone?", criteria={"calm": None})}
