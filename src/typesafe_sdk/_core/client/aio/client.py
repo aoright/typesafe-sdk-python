@@ -14,11 +14,17 @@ from typesafe_sdk._core.config import Config
 from typesafe_sdk._core.endpoints import prepare_system_one
 from typesafe_sdk._core.errors import TypeSafeError
 from typesafe_sdk._core.json_types import JSONContent, JSONValue
-from typesafe_sdk._core.pydantic import parse_model, questions_from_model, resolve_system_one_input
+from typesafe_sdk._core.pydantic import (
+    parse_model,
+    questions_from_model,
+    resolve_system_one_input,
+)
 from typesafe_sdk._core.question_types import Question
 from typesafe_sdk._core.response_types import SystemOneResponse
 from typesafe_sdk._core.retry import RetryPolicy, build_tenacity_async
 from typesafe_sdk._core.transport import Request, ResponseT, send_async
+
+_MISSING_STATE: JSONContent = cast(JSONContent, None)
 
 
 class AsyncTypeSafeClient:
@@ -193,7 +199,7 @@ class AsyncTypeSafeClient:
 
     async def system_one(
         self,
-        state: JSONContent = cast(JSONContent, None),
+        state: JSONContent = _MISSING_STATE,
         questions: Mapping[str, Question] | None = None,
         *,
         input: JSONContent | BaseModel | None = None,
@@ -279,6 +285,8 @@ class AsyncTypeSafeClient:
         if questions is None:
             if response_model is None:
                 raise TypeSafeError("Pass questions or a response_model.")
+            if not isinstance(response_model, type) or not issubclass(response_model, BaseModel):
+                raise TypeSafeError("response_model must be a Pydantic BaseModel subclass.")
             if issubclass(response_model, SystemOneResponse):
                 raise TypeSafeError(
                     "When questions is omitted, response_model cannot be SystemOneResponse; provide a flat Pydantic model describing the desired answers."

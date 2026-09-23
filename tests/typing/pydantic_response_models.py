@@ -3,8 +3,20 @@ from typing import TypeVar
 from pydantic import BaseModel
 from typing_extensions import assert_type
 
-from tests.test_pydantic_response_models import KnownResponse, TypedSystemOneResponse
-from typesafe_sdk import AsyncTypeSafeClient, ChoiceAnswer, Noul, NoulAnswer, ScoreAnswer, SystemOneResponse, TypeSafeClient
+from tests.test_pydantic_response_models import (
+    KnownAnswers,
+    KnownResponse,
+    TypedSystemOneResponse,
+)
+from typesafe_sdk import (
+    AsyncTypeSafeClient,
+    ChoiceAnswer,
+    Noul,
+    NoulAnswer,
+    ScoreAnswer,
+    SystemOneResponse,
+    TypeSafeClient,
+)
 
 PydanticT = TypeVar("PydanticT", bound=BaseModel)
 
@@ -30,6 +42,9 @@ def sync(client: TypeSafeClient, response_model: type[KnownResponse] | None) -> 
     assert_type(inferred_kw, KnownResponse)
     inferred_input = client.system_one(input="x", response_model=KnownResponse)
     assert_type(inferred_input, KnownResponse)
+    dummy_model = KnownResponse(model="m", answers=KnownAnswers(spam=NoulAnswer(noul=0.5)))
+    inferred_model_input = client.system_one(input=dummy_model, response_model=KnownResponse)
+    assert_type(inferred_model_input, KnownResponse)
 
 
 async def asynchronous(client: AsyncTypeSafeClient, response_model: type[KnownResponse] | None) -> None:
@@ -53,6 +68,9 @@ async def asynchronous(client: AsyncTypeSafeClient, response_model: type[KnownRe
     assert_type(inferred_async_kw, KnownResponse)
     inferred_async_input = await client.system_one(input="x", response_model=KnownResponse)
     assert_type(inferred_async_input, KnownResponse)
+    dummy_model = KnownResponse(model="m", answers=KnownAnswers(spam=NoulAnswer(noul=0.5)))
+    inferred_async_model_input = await client.system_one(input=dummy_model, response_model=KnownResponse)
+    assert_type(inferred_async_model_input, KnownResponse)
 
 
 def generic_sync(client: TypeSafeClient, response_model: type[PydanticT]) -> PydanticT:
@@ -61,3 +79,4 @@ def generic_sync(client: TypeSafeClient, response_model: type[PydanticT]) -> Pyd
 
 async def generic_async(client: AsyncTypeSafeClient, response_model: type[PydanticT]) -> PydanticT:
     return await client.system_one("x", {"spam": Noul()}, response_model=response_model)
+

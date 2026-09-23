@@ -8,6 +8,7 @@ import httpx2
 import pytest
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
     RootModel,
     ValidationError,
@@ -270,7 +271,7 @@ def test_conflicting_metadata() -> None:
 
 @pytest.mark.parametrize(
     "annotation",
-    [str, int, float, list[str], dict[str, str], Literal[1, 2], RootModel[bool]],
+    [str, int, list[str], dict[str, str], Literal[1, 2], RootModel[bool]],
 )
 def test_unsupported_types(annotation: Any) -> None:
     class BadModel(BaseModel):
@@ -396,3 +397,160 @@ async def test_inferred_mode_safety_checks(clients: ClientFactory) -> None:
             await call(state="x")
         else:
             call(state="x")
+
+
+def test_float_without_metadata_maps_to_noul() -> None:
+    class LikelihoodModel(BaseModel):
+        prob: float = Field(description="Likelihood of conversion")
+
+    questions = questions_from_model(LikelihoodModel)
+    assert "prob" in questions
+    assert isinstance(questions["prob"], Noul)
+    assert questions["prob"].instructions == "Likelihood of conversion"
+
+    response = make_system_one_response({"prob": NoulAnswer(noul=0.82)})
+    result = parse_model(LikelihoodModel, response)
+    assert result.prob == 0.82
+
+
+def test_score_int_rounding_and_strict() -> None:
+    class IntScoreModel(BaseModel):
+        score: Annotated[int, ScoreConfig(levels=["low", "medium", "high"])]
+
+    # 1.7 should round to 2
+    res2 = parse_model(IntScoreModel, make_system_one_response({"score": ScoreAnswer(score=1.7, confidence=1.0, probabilities={}, legend={})}))
+    assert res2.score == 2
+    assert isinstance(res2.score, int)
+
+    # 1.2 should round to 1
+    res1 = parse_model(IntScoreModel, make_system_one_response({"score": ScoreAnswer(score=1.2, confidence=1.0, probabilities={}, legend={})}))
+    assert res1.score == 1
+    assert isinstance(res1.score, int)
+
+    # Strict model should accept integer-rounded score without ValidationError
+    class StrictScoreModel(BaseModel):
+        model_config = ConfigDict(strict=True)
+        score: Annotated[int, ScoreConfig(levels=["low", "medium", "high"])]
+
+    strict_res = parse_model(StrictScoreModel, make_system_one_response({"score": ScoreAnswer(score=1.0, confidence=1.0, probabilities={}, legend={})}))
+    assert strict_res.score == 1
+    assert isinstance(strict_res.score, int)
+
+
+class CustomChoice(ChoiceAnswer):
+    pass
+
+
+class CustomNoul(NoulAnswer):
+    pass
+
+
+class CustomScore(ScoreAnswer):
+    pass
+
+
+class SubclassModel(BaseModel):
+    choice: Annotated[CustomChoice, ChoiceConfig(criteria=["apple", "banana"])]
+    flag: CustomNoul
+    rating: Annotated[CustomScore, ScoreConfig(levels=["bad", "good"])]
+
+
+def test_answer_subclasses() -> None:
+    questions = questions_from_model(SubclassModel)
+    assert isinstance(questions["choice"], Choice)
+    assert isinstance(questions["flag"], Noul)
+    assert isinstance(questions["rating"], Score)
+
+    response = make_system_one_response(
+        {
+            "choice": ChoiceAnswer(choice="apple", confidence=0.9, probabilities={"apple": 0.9, "banana": 0.1}),
+            "flag": NoulAnswer(noul=0.8),
+            "rating": ScoreAnswer(score=1.0, confidence=1.0, probabilities={0: 0.0, 1: 1.0}, legend={0: "bad", 1: "good"}),
+        }
+    )
+    result = parse_model(SubclassModel, response)
+    assert isinstance(result.choice, CustomChoice)
+    assert result.choice.choice == "apple"
+    assert isinstance(result.flag, CustomNoul)
+    assert result.flag.noul == 0.8
+    assert isinstance(result.rating, CustomScore)
+    assert result.rating.score == 1.0
+
+
+def test_choice_criteria_sequences() -> None:
+    class SeqLiteralModel(BaseModel):
+        tag: Annotated[Literal["x", "y"], ChoiceConfig(criteria=["x", "y"])]
+
+    q1 = questions_from_model(SeqLiteralModel)
+    assert isinstance(q1["tag"], Choice)
+    assert set(q1["tag"].criteria.keys()) == {"x", "y"}
+
+    class SeqStrModel(BaseModel):
+        tag: Annotated[str, QuestionConfig(criteria=("alpha", "beta"))]
+
+    q2 = questions_from_model(SeqStrModel)
+    assert isinstance(q2["tag"], Choice)
+    assert set(q2["tag"].criteria.keys()) == {"alpha", "beta"}
+
+    # Incompatible sequence criteria
+    class IncompatibleSeq(BaseModel):
+        tag: Annotated[Literal["x", "y"], ChoiceConfig(criteria=["x", "z"])]
+
+    with pytest.raises(TypeSafeError, match="incompatible Choice metadata"):
+        questions_from_model(IncompatibleSeq)
+
+
+def test_score_config_list_and_tuple_equality() -> None:
+    sc = ScoreConfig(levels=["a", "b"], criteria=("a", "b"))
+    assert sc.levels is not None and list(sc.levels) == ["a", "b"]
+    assert sc.criteria is not None and list(sc.criteria) == ["a", "b"]
+
+    sc2 = ScoreConfig(levels=("x", "y"), criteria=["x", "y"])
+    assert sc2.levels is not None and list(sc2.levels) == ["x", "y"]
+    assert sc2.criteria is not None and list(sc2.criteria) == ["x", "y"]
+
+
+def test_score_boundary_epsilon() -> None:
+    class SimpleScore(BaseModel):
+        val: Annotated[ScoreAnswer, ScoreConfig(levels=["l1", "l2", "l3"])]
+
+    # 2.0000000000000004 should be accepted within epsilon of max index 2
+    res = parse_model(
+        SimpleScore,
+        make_system_one_response(
+            {"val": ScoreAnswer(score=2.0000000000000004, confidence=1.0, probabilities={}, legend={})}
+        ),
+    )
+    assert res.val.score == 2.0000000000000004
+
+
+async def test_inferred_mode_with_pydantic_state_input(clients: ClientFactory) -> None:
+    client = clients(
+        lambda req: httpx2.Response(
+            200,
+            json={
+                "model": "jev-latest",
+                "usage": {"input_tokens": 10, "output_tokens": 2},
+                "answers": {
+                    "category": {"type": "choice", "choice": "billing", "confidence": 1.0, "probabilities": {"billing": 1.0}},
+                    "urgent": {"type": "noul", "noul": 0.9},
+                    "severity": {"type": "score", "score": 2.0, "confidence": 1.0, "legend": {"0": "l1", "1": "l2", "2": "l3"}, "probabilities": {"2": 1.0}},
+                },
+            },
+        )
+    )
+
+    req = StateInputModel(message="charge error", code=500)
+    system_one_fn = getattr(client, "system_one")  # noqa: B009
+    if isinstance(client, AsyncTypeSafeClient):
+        t1 = await client.system_one(input=req, response_model=Ticket)
+        t2 = await system_one_fn(state=req, response_model=Ticket)
+    else:
+        t1 = client.system_one(input=req, response_model=Ticket)
+        t2 = system_one_fn(state=req, response_model=Ticket)
+
+    assert t1.category == "billing"
+    assert t1.urgent is True
+    assert t1.severity.score == 2.0
+    assert t2.category == "billing"
+

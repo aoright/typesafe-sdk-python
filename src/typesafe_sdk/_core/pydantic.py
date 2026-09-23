@@ -34,7 +34,7 @@ class QuestionConfig:
     """Configuration for question extraction from a Pydantic model field."""
 
     instructions: JSONContent | None = None
-    criteria: Mapping[str, JSONContent | None] | NoulCriteria | None = None
+    criteria: Mapping[str, JSONContent | None] | Sequence[str] | NoulCriteria | None = None
 
 
 @dataclass(frozen=True)
@@ -56,12 +56,24 @@ class ScoreConfig:
     criteria: Sequence[JSONContent] | None = None
 
     def __post_init__(self) -> None:
-        if self.criteria is not None and self.levels is not None and self.criteria != self.levels:
+        if self.criteria is not None and self.levels is not None and list(self.criteria) != list(self.levels):
             raise TypeSafeError("Cannot specify different values for both 'levels' and 'criteria'.")
         if self.criteria is None and self.levels is not None:
             object.__setattr__(self, "criteria", self.levels)
         elif self.levels is None and self.criteria is not None:
             object.__setattr__(self, "levels", self.criteria)
+
+
+def _normalize_choice_criteria(
+    criteria: Mapping[str, JSONContent | None] | Sequence[str] | None,
+) -> dict[str, JSONContent | None]:
+    if criteria is None:
+        return {}
+    if isinstance(criteria, Mapping):
+        return dict(criteria)
+    if isinstance(criteria, Sequence) and not isinstance(criteria, (str, bytes)):
+        return dict.fromkeys(criteria)
+    raise TypeSafeError("Choice criteria must be a mapping or a sequence of labels.")
 
 
 def resolve_system_one_input(state: JSONContent | BaseModel | None, input: JSONContent | BaseModel | None) -> JSONContent:
@@ -102,6 +114,13 @@ def questions_from_model(model: type[BaseModel]) -> dict[str, Question]:
             raise TypeSafeError(f'Field "{name}" has conflicting question metadata.')
         config = metadata[0] if metadata else None
 
+        is_choice_answer = isinstance(annotation, type) and issubclass(annotation, ChoiceAnswer)
+        is_noul_answer = isinstance(annotation, type) and issubclass(annotation, NoulAnswer)
+        is_score_answer = isinstance(annotation, type) and issubclass(annotation, ScoreAnswer)
+        is_int_type = annotation is int or (
+            isinstance(annotation, type) and issubclass(annotation, int) and not issubclass(annotation, bool)
+        )
+
         labels: tuple[str, ...] | None = None
         if get_origin(annotation) is Literal:
             raw_labels = get_args(annotation)
@@ -126,9 +145,10 @@ def questions_from_model(model: type[BaseModel]) -> dict[str, Question]:
                     question = question.model_copy(update={"instructions": field.description})
             elif isinstance(config, (QuestionConfig, ChoiceConfig)):
                 if config.criteria is not None:
-                    if set(config.criteria) != set(labels):
+                    norm_criteria = _normalize_choice_criteria(config.criteria)
+                    if set(norm_criteria.keys()) != set(labels):
                         raise TypeSafeError(f'Field "{name}" has incompatible Choice metadata.')
-                    criteria = config.criteria
+                    criteria = norm_criteria
                 else:
                     criteria = dict.fromkeys(labels)
                 instructions = config.instructions if config.instructions is not None else field.description
@@ -136,7 +156,7 @@ def questions_from_model(model: type[BaseModel]) -> dict[str, Question]:
             else:
                 raise TypeSafeError(f'Field "{name}" has incompatible Choice metadata.')
 
-        elif annotation is ChoiceAnswer or (
+        elif is_choice_answer or (
             annotation is str
             and isinstance(config, (Choice, ChoiceConfig, QuestionConfig))
             and getattr(config, "criteria", None) is not None
@@ -147,11 +167,12 @@ def questions_from_model(model: type[BaseModel]) -> dict[str, Question]:
                     question = question.model_copy(update={"instructions": field.description})
             elif isinstance(config, (QuestionConfig, ChoiceConfig)) and config.criteria is not None:
                 instructions = config.instructions if config.instructions is not None else field.description
-                question = Choice(criteria=config.criteria, instructions=instructions)
+                criteria = _normalize_choice_criteria(config.criteria)
+                question = Choice(criteria=criteria, instructions=instructions)
             else:
                 raise TypeSafeError(f'Field "{name}" requires criteria in Choice or QuestionConfig.')
 
-        elif annotation is bool or annotation is NoulAnswer:
+        elif annotation is bool or is_noul_answer or (annotation is float and not isinstance(config, (ScoreConfig, Score))):
             if config is None:
                 question = Noul(instructions=field.description)
             elif isinstance(config, Noul):
@@ -165,23 +186,7 @@ def questions_from_model(model: type[BaseModel]) -> dict[str, Question]:
             else:
                 raise TypeSafeError(f'Field "{name}" requires Noul metadata.')
 
-        elif annotation is float and not isinstance(config, (ScoreConfig, Score)):
-            if config is None:
-                raise TypeSafeError(
-                    f'Field "{name}" has an unsupported type; use string Literal/Enum, bool, or float with Noul/Score metadata.'
-                )
-            if isinstance(config, Noul):
-                question = config
-                if question.instructions is None and field.description is not None:
-                    question = question.model_copy(update={"instructions": field.description})
-            elif isinstance(config, (QuestionConfig, NoulConfig)):
-                instructions = config.instructions if config.instructions is not None else field.description
-                criteria = config.criteria if isinstance(config.criteria, dict) else None
-                question = Noul(instructions=instructions, criteria=criteria)
-            else:
-                raise TypeSafeError(f'Field "{name}" requires Noul metadata.')
-
-        elif annotation is ScoreAnswer or (annotation in (int, float) and isinstance(config, (ScoreConfig, Score))):
+        elif is_score_answer or ((is_int_type or annotation is float) and isinstance(config, (ScoreConfig, Score))):
             if config is None:
                 raise TypeSafeError(f'Field "{name}" requires ScoreConfig or Score metadata.')
             if isinstance(config, Score):
@@ -219,13 +224,23 @@ def parse_model(model: type[ModelT], response: SystemOneResponse) -> ModelT:
         field = model.model_fields[name]
         annotation = field.annotation
 
+        is_choice_answer = isinstance(annotation, type) and issubclass(annotation, ChoiceAnswer)
+        is_noul_answer = isinstance(annotation, type) and issubclass(annotation, NoulAnswer)
+        is_score_answer = isinstance(annotation, type) and issubclass(annotation, ScoreAnswer)
+        is_int_type = annotation is int or (
+            isinstance(annotation, type) and issubclass(annotation, int) and not issubclass(annotation, bool)
+        )
+
         if isinstance(question, Choice):
             if not isinstance(answer, ChoiceAnswer):
                 raise TypeSafeError(f'Wrong answer type for field "{name}".')
             if answer.choice not in question.criteria:
                 raise TypeSafeError(f'Unknown choice for field "{name}": {answer.choice!r}.')
-            if annotation is ChoiceAnswer:
-                values[name] = answer
+            if is_choice_answer:
+                if annotation is ChoiceAnswer:
+                    values[name] = answer
+                else:
+                    values[name] = annotation.model_validate(answer.model_dump())
             elif isinstance(annotation, type) and issubclass(annotation, Enum):
                 values[name] = annotation(answer.choice)
             else:
@@ -234,10 +249,13 @@ def parse_model(model: type[ModelT], response: SystemOneResponse) -> ModelT:
         elif isinstance(question, Noul):
             if not isinstance(answer, NoulAnswer):
                 raise TypeSafeError(f'Wrong answer type for field "{name}".')
-            if math.isnan(answer.noul) or math.isinf(answer.noul) or not (0.0 <= answer.noul <= 1.0):
+            if math.isnan(answer.noul) or math.isinf(answer.noul) or not (-1e-6 <= answer.noul <= 1.0 + 1e-6):
                 raise TypeSafeError(f'Invalid probability for field "{name}"; expected a value from zero to one.')
-            if annotation is NoulAnswer:
-                values[name] = answer
+            if is_noul_answer:
+                if annotation is NoulAnswer:
+                    values[name] = answer
+                else:
+                    values[name] = annotation.model_validate(answer.model_dump())
             elif annotation is bool:
                 values[name] = answer.noul >= 0.5
             else:
@@ -246,10 +264,15 @@ def parse_model(model: type[ModelT], response: SystemOneResponse) -> ModelT:
         elif isinstance(question, Score):
             if not isinstance(answer, ScoreAnswer):
                 raise TypeSafeError(f'Wrong answer type for field "{name}".')
-            if math.isnan(answer.score) or math.isinf(answer.score) or not (0.0 <= answer.score <= len(question.criteria) - 1):
+            if math.isnan(answer.score) or math.isinf(answer.score) or not (-1e-6 <= answer.score <= (len(question.criteria) - 1) + 1e-6):
                 raise TypeSafeError(f'Invalid score for field "{name}"; expected a value within the rubric.')
-            if annotation is ScoreAnswer:
-                values[name] = answer
+            if is_score_answer:
+                if annotation is ScoreAnswer:
+                    values[name] = answer
+                else:
+                    values[name] = annotation.model_validate(answer.model_dump())
+            elif is_int_type:
+                values[name] = round(answer.score)
             else:
                 values[name] = answer.score
 
