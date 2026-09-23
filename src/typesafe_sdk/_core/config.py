@@ -18,14 +18,14 @@ from typesafe_sdk.constants import (
 )
 
 
-def _resolve_string(value: str | None, env: str, default: str = "") -> str:
+def _resolve_string(value: str | None, env: str, default: str = "", environ: Mapping[str, str] = os.environ) -> str:
     """Resolve an explicit string or a stripped environment value, falling back to a default."""
-    return value if value is not None else os.environ.get(env, "").strip() or default
+    return value if value is not None else environ.get(env, "").strip() or default
 
 
-def resolve_and_validate_api_key(api_key: str | None) -> str:
+def resolve_and_validate_api_key(api_key: str | None, environ: Mapping[str, str] = os.environ) -> str:
     """Resolve an API key from the argument or environment, strip whitespace, and validate it."""
-    key = _resolve_string(api_key, API_KEY_ENV).strip()
+    key = _resolve_string(api_key, API_KEY_ENV, environ=environ).strip()
     if not key:
         raise TypeSafeError(f"No API key was provided. Pass api_key or set the {API_KEY_ENV} environment variable.")
     if not key.isascii() or not key.isprintable() or " " in key:
@@ -55,11 +55,12 @@ class Config:
         default_model: str | None,
         timeout: float | httpx2.Timeout | None,
         default_headers: Mapping[str, str] | None,
+        environ: Mapping[str, str] = os.environ,
     ) -> "Config":
         return cls(
-            resolve_and_validate_api_key(api_key),
-            _resolve_string(base_url, BASE_URL_ENV, DEFAULT_BASE_URL).rstrip("/"),
-            _resolve_string(default_model, DEFAULT_MODEL_ENV, DEFAULT_MODEL),
+            resolve_and_validate_api_key(api_key, environ=environ),
+            _resolve_string(base_url, BASE_URL_ENV, DEFAULT_BASE_URL, environ=environ).rstrip("/"),
+            _resolve_string(default_model, DEFAULT_MODEL_ENV, DEFAULT_MODEL, environ=environ),
             resolve_timeout(DEFAULT_TIMEOUT if timeout is None else timeout),
             httpx2.Headers(default_headers),
         )

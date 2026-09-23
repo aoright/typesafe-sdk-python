@@ -168,3 +168,38 @@ async def test_http_client_timeout_precedence(
     assert requests[0].extensions["timeout"] == expected.as_dict()
     assert requests[1].extensions["timeout"] == default.as_dict()
     assert http_client.timeout == http_timeout
+
+
+def test_config_resolve_accepts_custom_environ() -> None:
+    from typesafe_sdk._core.config import Config
+
+    custom_env = {
+        "TYPESAFE_API_KEY": "env-custom-key",
+        "TYPESAFE_BASE_URL": "https://custom.api.test",
+        "TYPESAFE_DEFAULT_MODEL": "custom-model",
+    }
+    cfg = Config.resolve(None, None, None, None, None, environ=custom_env)
+    assert cfg.api_key == "env-custom-key"
+    assert cfg.base_url == "https://custom.api.test"
+    assert cfg.default_model == "custom-model"
+
+    # Explicit arguments override custom environ
+    cfg_override = Config.resolve("explicit-key", "https://override.test", "override-model", None, None, environ=custom_env)
+    assert cfg_override.api_key == "explicit-key"
+    assert cfg_override.base_url == "https://override.test"
+    assert cfg_override.default_model == "override-model"
+
+
+def test_resolve_client_config_shared_validation() -> None:
+    from typesafe_sdk._core.client import resolve_client_config
+
+    transport = httpx2.MockTransport(lambda request: httpx2.Response(200))
+    http_client = httpx2.Client(transport=transport, timeout=7.5)
+    try:
+        with pytest.raises(ValueError, match="transport and http_client are mutually exclusive"):
+            resolve_client_config("key", None, None, None, None, transport=transport, http_client=http_client)
+
+        cfg = resolve_client_config("key", None, None, None, None, transport=None, http_client=http_client)
+        assert cfg.timeout == httpx2.Timeout(7.5)
+    finally:
+        http_client.close()

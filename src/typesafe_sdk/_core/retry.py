@@ -28,6 +28,7 @@ def _backoff(attempt: int, initial: float, maximum: float, jitter: float) -> flo
     if initial == 0 or maximum == 0:
         return 0.0
     exponent = attempt - 1
+    # Check logarithmic bound first to avoid overflow to infinity when computing large powers.
     exponential = maximum if exponent >= math.log2(maximum) - math.log2(initial) else math.ldexp(initial, exponent)
     delay = exponential * (1 - random.random() * jitter)  # noqa: S311 - Backoff jitter, not cryptography.
     return min(exponential, round(delay, 3))

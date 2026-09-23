@@ -8,8 +8,8 @@ from typing import overload
 import httpx2
 from typing_extensions import Self
 
+from typesafe_sdk._core.client import resolve_client_config
 from typesafe_sdk._core.client.aio.models import AsyncModels
-from typesafe_sdk._core.config import Config
 from typesafe_sdk._core.endpoints import prepare_system_one
 from typesafe_sdk._core.json_types import JSONContent, JSONValue
 from typesafe_sdk._core.question_types import Question
@@ -85,11 +85,7 @@ class AsyncTypeSafeClient:
             asyncio.run(main())
             ```
         """
-        if transport is not None and http_client is not None:
-            raise ValueError("transport and http_client are mutually exclusive.")
-        if timeout is None and http_client is not None:
-            timeout = http_client.timeout
-        self._config = Config.resolve(api_key, base_url, model, timeout, headers)
+        self._config = resolve_client_config(api_key, base_url, model, timeout, headers, transport, http_client)
         self._retry = build_tenacity_async(retry)
         self._http_client = httpx2.AsyncClient(timeout=self._config.timeout, transport=transport) if http_client is None else http_client
 
