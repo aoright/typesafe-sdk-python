@@ -21,6 +21,12 @@ from typesafe_sdk._core.errors import (
     TypeSafeUnprocessableEntityError,
 )
 from typesafe_sdk._core.json_types import JSONContent, JSONValue
+from typesafe_sdk._core.pydantic import (
+    ChoiceConfig,
+    NoulConfig,
+    QuestionConfig,
+    ScoreConfig,
+)
 from typesafe_sdk._core.question_types import (
     Choice,
     ChoiceModel,
@@ -52,6 +58,7 @@ __all__ = [
     "AsyncTypeSafeClient",
     "Choice",
     "ChoiceAnswer",
+    "ChoiceConfig",
     "ChoiceModel",
     "JSONContent",
     "JSONValue",
@@ -60,14 +67,17 @@ __all__ = [
     "Models",
     "Noul",
     "NoulAnswer",
+    "NoulConfig",
     "NoulCriteria",
     "NoulModel",
     "Question",
+    "QuestionConfig",
     "QuestionModel",
     "Questions",
     "RetryPolicy",
     "Score",
     "ScoreAnswer",
+    "ScoreConfig",
     "ScoreModel",
     "SystemOneResponse",
     "TypeSafeAPIConnectionError",

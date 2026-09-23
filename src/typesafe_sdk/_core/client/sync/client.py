@@ -3,15 +3,18 @@
 from collections.abc import Mapping
 from functools import cached_property
 from types import TracebackType
-from typing import overload
+from typing import cast, overload
 
 import httpx2
+from pydantic import BaseModel
 from typing_extensions import Self
 
 from typesafe_sdk._core.client.sync.models import Models
 from typesafe_sdk._core.config import Config
 from typesafe_sdk._core.endpoints import prepare_system_one
+from typesafe_sdk._core.errors import TypeSafeError
 from typesafe_sdk._core.json_types import JSONContent, JSONValue
+from typesafe_sdk._core.pydantic import parse_model, questions_from_model, resolve_system_one_input
 from typesafe_sdk._core.question_types import Question
 from typesafe_sdk._core.response_types import SystemOneResponse
 from typesafe_sdk._core.retry import RetryPolicy, build_tenacity
@@ -126,11 +129,66 @@ class TypeSafeClient:
         response_model: type[ResponseT],
     ) -> ResponseT: ...
 
+    @overload
     def system_one(
         self,
         state: JSONContent,
-        questions: Mapping[str, Question],
         *,
+        model: str | None = None,
+        retry: RetryPolicy | None = None,
+        timeout: float | httpx2.Timeout | None = None,
+        extra_headers: Mapping[str, str] | None = None,
+        extra_body: Mapping[str, JSONValue | None] | None = None,
+        response_model: type[ResponseT],
+    ) -> ResponseT: ...
+
+    @overload
+    def system_one(
+        self,
+        *,
+        input: JSONContent | BaseModel,
+        questions: Mapping[str, Question],
+        model: str | None = None,
+        retry: RetryPolicy | None = None,
+        timeout: float | httpx2.Timeout | None = None,
+        extra_headers: Mapping[str, str] | None = None,
+        extra_body: Mapping[str, JSONValue | None] | None = None,
+        response_model: None = None,
+    ) -> SystemOneResponse: ...
+
+    @overload
+    def system_one(
+        self,
+        *,
+        input: JSONContent | BaseModel,
+        questions: Mapping[str, Question],
+        model: str | None = None,
+        retry: RetryPolicy | None = None,
+        timeout: float | httpx2.Timeout | None = None,
+        extra_headers: Mapping[str, str] | None = None,
+        extra_body: Mapping[str, JSONValue | None] | None = None,
+        response_model: type[ResponseT],
+    ) -> ResponseT: ...
+
+    @overload
+    def system_one(
+        self,
+        *,
+        input: JSONContent | BaseModel,
+        model: str | None = None,
+        retry: RetryPolicy | None = None,
+        timeout: float | httpx2.Timeout | None = None,
+        extra_headers: Mapping[str, str] | None = None,
+        extra_body: Mapping[str, JSONValue | None] | None = None,
+        response_model: type[ResponseT],
+    ) -> ResponseT: ...
+
+    def system_one(
+        self,
+        state: JSONContent = cast(JSONContent, None),
+        questions: Mapping[str, Question] | None = None,
+        *,
+        input: JSONContent | BaseModel | None = None,
         model: str | None = None,
         retry: RetryPolicy | None = None,
         timeout: float | httpx2.Timeout | None = None,
@@ -143,9 +201,11 @@ class TypeSafeClient:
         See [System One](https://docs.typesafe.ai/concepts/system-one) for details.
 
         Args:
-            state: Text, a JSON object, or an array to evaluate.
+            state: Text, a JSON object, an array, or a Pydantic model to evaluate.
                 See [state](https://docs.typesafe.ai/concepts/state) for details.
-            questions: Nonempty mapping of names to question objects or raw dictionaries.
+            questions: Mapping of names to question objects or raw dictionaries.
+                When omitted, questions are inferred from `response_model`.
+            input: Alias for `state`. Pass either `input` or `state`, not both.
             model: Model override; `None` inherits the client default.
             retry: An optional retry policy to override the client-level value for this call only.
             timeout: An optional timeout for http operations to override the client-level value for this call only, in seconds.
@@ -155,7 +215,7 @@ class TypeSafeClient:
                 collides with `state`, `model`, or `questions` overrides it, and object values are
                 replaced rather than deep-merged.
             response_model: Optional Pydantic `BaseModel` type describing the JSON response body,
-                including any nested answer models.
+                including any nested answer models, or a flat model whose fields define questions.
 
         Returns:
             An instance of `response_model`, or `SystemOneResponse` with answers keyed by question
@@ -205,10 +265,35 @@ class TypeSafeClient:
                 assert result.choices["tone"].choice in {"calm", "angry"}
             ```
         """
+        resolved_state = resolve_system_one_input(state, input)
+        if questions is None:
+            if response_model is None:
+                raise TypeSafeError("Pass questions or a response_model.")
+            if issubclass(response_model, SystemOneResponse):
+                raise TypeSafeError(
+                    "When questions is omitted, response_model cannot be SystemOneResponse; provide a flat Pydantic model describing the desired answers."
+                )
+            if extra_body is not None and {"state", "questions"}.intersection(extra_body):
+                raise TypeSafeError("extra_body cannot override state or questions in inferred mode.")
+            inferred_questions = questions_from_model(response_model)
+            response = self._request(
+                prepare_system_one(
+                    self._config,
+                    resolved_state,
+                    inferred_questions,
+                    model,
+                    extra_body,
+                    timeout,
+                    extra_headers,
+                    SystemOneResponse,
+                ),
+                retry=retry,
+            )
+            return parse_model(response_model, response)
         return self._request(
             prepare_system_one(
                 self._config,
-                state,
+                resolved_state,
                 questions,
                 model,
                 extra_body,

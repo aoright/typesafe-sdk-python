@@ -24,6 +24,12 @@ def sync(client: TypeSafeClient, response_model: type[KnownResponse] | None) -> 
     assert_type(typed.nouls, dict[str, NoulAnswer])
     assert_type(typed.choices, dict[str, ChoiceAnswer])
     assert_type(typed.scores, dict[str, ScoreAnswer])
+    inferred = client.system_one("x", response_model=KnownResponse)
+    assert_type(inferred, KnownResponse)
+    inferred_kw = client.system_one(state="x", response_model=KnownResponse)
+    assert_type(inferred_kw, KnownResponse)
+    inferred_input = client.system_one(input="x", response_model=KnownResponse)
+    assert_type(inferred_input, KnownResponse)
 
 
 async def asynchronous(client: AsyncTypeSafeClient, response_model: type[KnownResponse] | None) -> None:
@@ -41,6 +47,12 @@ async def asynchronous(client: AsyncTypeSafeClient, response_model: type[KnownRe
     assert_type(typed.nouls, dict[str, NoulAnswer])
     assert_type(typed.choices, dict[str, ChoiceAnswer])
     assert_type(typed.scores, dict[str, ScoreAnswer])
+    inferred_async = await client.system_one("x", response_model=KnownResponse)
+    assert_type(inferred_async, KnownResponse)
+    inferred_async_kw = await client.system_one(state="x", response_model=KnownResponse)
+    assert_type(inferred_async_kw, KnownResponse)
+    inferred_async_input = await client.system_one(input="x", response_model=KnownResponse)
+    assert_type(inferred_async_input, KnownResponse)
 
 
 def generic_sync(client: TypeSafeClient, response_model: type[PydanticT]) -> PydanticT:
