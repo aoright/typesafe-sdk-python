@@ -5,6 +5,16 @@ icon: lucide/history
 
 # Changelog
 
+## v0.7.2 (2026-09-26)
+
+### Miscellaneous
+
+- add `http2` extra to `typesafe-sdk` package
+
+### Documentation
+
+- document `typesafe-sdk` usage with HTTP/2 support
+
 ## v0.7.1 (2026-09-21)
 
 ### Bug fixes

@@ -1,6 +1,6 @@
 [project]
 name = "typesafe-sdk"
-version = "0.7.1"
+version = "0.7.2"
 description = "Python SDK for TypeSafe AI API."
 readme = "README.md"
 license = "MIT"
@@ -38,6 +38,11 @@ dependencies = [
     "pydantic-core>=2.41.1",
     "tenacity>=9.0.0",
     "typing-extensions>=4.13.0",
+]
+
+[project.optional-dependencies]
+http2 = [
+    "httpx2[http2]>=2.0.0",
 ]
 
 [project.urls]

@@ -10,6 +10,8 @@ Install the SDK:
 uv add typesafe-sdk
 ```
 
+Add the `http2` extra (`typesafe-sdk[http2]`) to enable [HTTP/2 support](https://docs.typesafe.ai/sdk/python/usage/#http2).
+
 Set `TYPESAFE_API_KEY` in your environment, then instantiate and use the client:
 
 ```python
