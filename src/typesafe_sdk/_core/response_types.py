@@ -15,11 +15,18 @@ from typing_extensions import Self, override
 
 from typesafe_sdk._core.json import deserialize, serialize
 from typesafe_sdk._core.logging import logger
-from typesafe_sdk._core.schemas.base import Response, Schema, format_error_path, format_path, validation_error
+from typesafe_sdk._core.schemas.base import (
+    JSONSerDeMixin,
+    Response,
+    Schema,
+    format_error_path,
+    format_path,
+    validation_error,
+)
 from typesafe_sdk._schemas import models as wire
 
 
-class NoulAnswer(wire.NoulAnswer):
+class NoulAnswer(wire.NoulAnswer, JSONSerDeMixin):
     """A yes/no answer.
 
     See the [noul primitive](https://docs.typesafe.ai/primitives/noul) for details.
@@ -30,7 +37,7 @@ class NoulAnswer(wire.NoulAnswer):
     type: Literal["noul"] = "noul"  # pyrefly: ignore[bad-override]
 
 
-class ChoiceAnswer(wire.ChoiceAnswer):
+class ChoiceAnswer(wire.ChoiceAnswer, JSONSerDeMixin):
     """A selected label and its probabilities.
 
     See the [choice primitive](https://docs.typesafe.ai/primitives/choice) for details.
@@ -41,7 +48,7 @@ class ChoiceAnswer(wire.ChoiceAnswer):
     type: Literal["choice"] = "choice"  # pyrefly: ignore[bad-override]
 
 
-class ScoreAnswer(wire.ScoreAnswer):
+class ScoreAnswer(wire.ScoreAnswer, JSONSerDeMixin):
     """An expected score with its rubric and probabilities.
 
     See the [score primitive](https://docs.typesafe.ai/primitives/score) for details.
@@ -62,7 +69,7 @@ Answer: TypeAlias = Annotated[NoulAnswer | ChoiceAnswer | ScoreAnswer, Field(dis
 """An answer to a single question, identified by its `type`."""
 
 
-class Usage(wire.Usage):
+class Usage(wire.Usage, JSONSerDeMixin):
     """Token counts for a request, when reported by the API."""
 
     model_config = ConfigDict(extra="ignore", frozen=True, strict=True)

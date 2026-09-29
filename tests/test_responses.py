@@ -272,3 +272,66 @@ def test_answer_groups_are_cached_and_not_serialized(group: str) -> None:
     # The derived view is memoized (stable identity) and never leaks into the serialized payload.
     assert getattr(result, group) is cached
     assert group not in result.model_dump()
+
+
+@pytest.mark.parametrize(
+    "instance,expected_dict",
+    [
+        (
+            NoulAnswer(noul=0.95),
+            {"type": "noul", "noul": 0.95},
+        ),
+        (
+            ChoiceAnswer(choice="billing", confidence=0.88, probabilities={"billing": 0.88, "support": 0.12}),
+            {"type": "choice", "choice": "billing", "confidence": 0.88, "probabilities": {"billing": 0.88, "support": 0.12}},
+        ),
+        (
+            ScoreAnswer(score=4.0, confidence=0.9, legend={1: "poor", 5: "great"}, probabilities={1: 0.1, 5: 0.9}),
+            {"type": "score", "score": 4.0, "confidence": 0.9, "legend": {"1": "poor", "5": "great"}, "probabilities": {"1": 0.1, "5": 0.9}},
+        ),
+        (
+            Usage(input_tokens=10, output_tokens=5),
+            {"input_tokens": 10, "output_tokens": 5},
+        ),
+        (
+            ModelMetadata(name="jev-latest", description="Fast decision model", release_date="2026-09-14"),
+            {"name": "jev-latest", "description": "Fast decision model", "release_date": "2026-09-14"},
+        ),
+        (
+            SystemOneResponse(
+                model="jev-latest",
+                usage=Usage(input_tokens=15, output_tokens=3),
+                answers={
+                    "urgent": NoulAnswer(noul=0.95),
+                    "cat": ChoiceAnswer(choice="billing", confidence=1.0, probabilities={"billing": 1.0}),
+                },
+            ),
+            {
+                "model": "jev-latest",
+                "usage": {"input_tokens": 15, "output_tokens": 3},
+                "answers": {
+                    "urgent": {"type": "noul", "noul": 0.95},
+                    "cat": {"type": "choice", "choice": "billing", "confidence": 1.0, "probabilities": {"billing": 1.0}},
+                },
+            },
+        ),
+    ],
+)
+def test_response_and_answer_json_serde(instance: Any, expected_dict: dict[str, Any]) -> None:
+    # 1. to_json_dict returns plain dictionary matching expected structure
+    data = instance.to_json_dict()
+    assert data == expected_dict
+    assert isinstance(data, dict)
+
+    # 2. to_json returns serialized string that can be deserialized back
+    json_str = instance.to_json()
+    assert isinstance(json_str, str)
+
+    # 3. from_json works with dict
+    from_dict = type(instance).from_json(data)
+    assert from_dict == instance
+
+    # 4. from_json works with JSON string
+    from_str = type(instance).from_json(json_str)
+    assert from_str == instance
+

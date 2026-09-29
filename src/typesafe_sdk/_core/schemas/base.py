@@ -15,7 +15,26 @@ from typesafe_sdk._core.json import deserialize
 ResponseT = TypeVar("ResponseT", bound=BaseModel)
 
 
-class Schema(BaseModel):
+class JSONSerDeMixin:
+    """Methods for converting between response models and JSON structures."""
+
+    def to_json_dict(self) -> dict[str, Any]:
+        """Serialize this object to a JSON-compatible dictionary of primitive types."""
+        return self.model_dump(mode="json")  # type: ignore[attr-defined]
+
+    def to_json(self) -> str:
+        """Serialize this object to a JSON formatted string."""
+        return self.model_dump_json()  # type: ignore[attr-defined]
+
+    @classmethod
+    def from_json(cls, data: str | bytes | dict[str, Any]) -> Self:
+        """Deserialize a JSON string, bytes, or dictionary into an instance of this model."""
+        if isinstance(data, (str, bytes)):
+            return cls.model_validate_json(data)
+        return cls.model_validate(data, strict=False)
+
+
+class Schema(BaseModel, JSONSerDeMixin):
     """Base type for immutable response objects that tolerate unknown fields."""
 
     model_config = ConfigDict(extra="ignore", frozen=True, strict=True)
