@@ -9,7 +9,11 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from typing_extensions import Self
 
 from typesafe_sdk._core.constants import REQUEST_ID_HEADER
-from typesafe_sdk._core.errors import TypeSafeAPIResponseValidationError, TypeSafeError, api_error
+from typesafe_sdk._core.errors import (
+    TypeSafeAPIResponseValidationError,
+    TypeSafeError,
+    api_error,
+)
 from typesafe_sdk._core.json import deserialize
 
 ResponseT = TypeVar("ResponseT", bound=BaseModel)
@@ -28,7 +32,11 @@ class JSONSerDeMixin:
 
     @classmethod
     def from_json(cls, data: str | bytes | dict[str, Any]) -> Self:
-        """Deserialize a JSON string, bytes, or dictionary into an instance of this model."""
+        """Deserialize a JSON string, bytes, or dictionary into an instance of this model.
+
+        Note: `strict=False` on dict validation allows stringified integer keys (produced
+        when serializing int-keyed dicts like ScoreAnswer.legend to JSON) to coerce back to int.
+        """
         if isinstance(data, (str, bytes)):
             return cls.model_validate_json(data)
         return cls.model_validate(data, strict=False)
@@ -122,7 +130,7 @@ def parse_response(response: httpx2.Response, response_type: type[ResponseT]) ->
     if not response.is_success:
         raise api_error(response.status_code, deserialize(response.content), response.headers, _request_endpoint(response))
     if issubclass(response_type, _ResponseMixin):
-        result = response_type._decode(response)  # noqa: SLF001 - Dispatch to the SDK response decoder.
+        result = response_type._decode(response)
     else:
         try:
             result = response_type.model_validate_json(response.content)
